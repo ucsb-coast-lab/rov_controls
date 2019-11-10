@@ -80,18 +80,18 @@ pub fn set_manual_control() -> mavlink::common::MavMessage {
 }
 
 pub fn manual_control(
-    x: i16,
-    y: i16,
-    z: i16,
-    r: i16,
+    x: f32,
+    y: f32,
+    z: f32,
+    r: f32,
     buttons: u16,
     target: u8,
 ) -> mavlink::common::MavMessage {
     mavlink::common::MavMessage::MANUAL_CONTROL(mavlink::common::MANUAL_CONTROL_DATA {
-        x: x * 100, // x, with range from [-1000,1000]
-        y: y * 100, // y, with range from [-1000,1000]
-        z: z * 100, // z, with range from [0,1000]
-        r: r * 100, // rotation r, with range from cw<-[-1000,1000]->ccw
+        x: (x * 100.0) as i16, // x, with range from [-1000,1000]
+        y: (y * 100.0) as i16, // y, with range from [-1000,1000]
+        z: (z * 100.0) as i16, // z, with range from [0,1000]
+        r: (r * 100.0) as i16, // rotation r, with range from cw<-[-1000,1000]->ccw
         buttons: buttons,
         target: target,
     })

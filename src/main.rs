@@ -3,8 +3,8 @@ use std::thread;
 use std::time::Duration;
 
 mod lib;
-use crate::lib::*;
 use crate::lib::Attitude;
+use crate::lib::*;
 
 // Will only run thrusters when being run on the Raspberry Pi
 fn main() {
@@ -43,7 +43,7 @@ fn main() {
     });
 
     let mut msgs: Vec<mavlink::common::MavMessage> = Vec::new();
-    let mut attitude: Attitude = Attitude::new(0.0,0.0,0.0,0.0,0.0,0.0);
+    let mut attitude: Attitude = Attitude::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     loop {
         match vehicle.recv() {
             Ok((_header, msg)) => {
@@ -86,7 +86,14 @@ fn main() {
                     rollspeed,
                     pitchspeed,
                     yawspeed,
-                }) => Attitude::new(roll, pitch, yaw * 180.0 / 3.14, rollspeed, pitchspeed, yawspeed),
+                }) => Attitude::new(
+                    roll,
+                    pitch,
+                    yaw * 180.0 / 3.14,
+                    rollspeed,
+                    pitchspeed,
+                    yawspeed,
+                ),
                 _ => break,
             };
             println!("{:?}", attitude.yaw);
@@ -98,32 +105,37 @@ fn main() {
         let diff: f32 = (desired_yaw - attitude.yaw).abs();
         let mut strength = 0.0;
         if diff < 3.0 {
-            vehicle.send_default(&manual_control(7, 0, 6, 0, 0, 0)).unwrap();
-            println!("yaw: {}, diff: {} < 3.0 => forward motion ",attitude.yaw,diff);
-        }
-        else {
+            vehicle
+                .send_default(&manual_control(7.0, 0.0, 6.5, 0.0, 0, 0))
+                .unwrap();
+            println!(
+                "yaw: {}, diff: {} < 3.0 => forward motion ",
+                attitude.yaw, diff
+            );
+        } else {
             if diff > 60.0 {
                 strength = 2.2;
-            }
-            else if diff > 15.0 {
+            } else if diff > 15.0 {
                 strength = 1.8;
-            }
-            else {
+            } else {
                 strength = 1.6;
             }
         }
 
-        println!("yaw: {}, diff: {}, strength: {}",attitude.yaw,diff,strength);
+        println!(
+            "yaw: {}, diff: {}, strength: {}",
+            attitude.yaw, diff, strength
+        );
         if attitude.yaw < desired_yaw {
-            vehicle.send_default(&manual_control(7, 0, 6, (strength as i16), 0, 0)).unwrap();
-        }
-        else {
-            vehicle.send_default(&manual_control(7, 0, 6, (-strength as i16), 0, 0)).unwrap();
+            vehicle
+                .send_default(&manual_control(7.0, 0.0, 6.0, strength, 0, 0))
+                .unwrap();
+        } else {
+            vehicle
+                .send_default(&manual_control(7.0, 0.0, 6.0, -strength, 0, 0))
+                .unwrap();
         }
 
         // vehicle.send_default(&manual_control(7, 0, 6, 0, 0, 0)).unwrap();
-
-
-
     }
 }

@@ -44,6 +44,8 @@ pub fn heartbeat_message() -> mavlink::common::MavMessage {
 }
 
 /// Create a message requesting the parameters list
+// NOTE: Can look up parameter ID list at the following address:
+// https://docs.rs/mavlink/0.6.0/src/mavlink/opt/rustwide/target/x86_64-unknown-linux-gnu/debug/build/mavlink-c1728ed89c975b6f/out/common.rs.html#7964
 pub fn request_parameters() -> mavlink::common::MavMessage {
     mavlink::common::MavMessage::PARAM_REQUEST_LIST(mavlink::common::PARAM_REQUEST_LIST_DATA {
         target_system: 0,
@@ -62,8 +64,8 @@ pub fn request_stream() -> mavlink::common::MavMessage {
     })
 }
 
-//
-pub fn set_manual_control() -> mavlink::common::MavMessage {
+// Changes the mode to "MANUAL CONTROL"
+pub fn set_to_manual_control() -> mavlink::common::MavMessage {
     mavlink::common::MavMessage::COMMAND_LONG(mavlink::common::COMMAND_LONG_DATA {
         param1: 1.0,
         param2: 1.0,

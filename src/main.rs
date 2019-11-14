@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 mod lib;
 use crate::lib::Attitude;
@@ -26,8 +26,11 @@ fn main() {
     vehicle
         .send(&mavlink::MavHeader::get_default_header(), &request_stream())
         .unwrap();
-    vehicle.send_default(&set_manual_control()).unwrap();
-    println!("Protocol version: {:?}", vehicle.get_protocol_version());
+    vehicle.send_default(&set_to_manual_control()).unwrap();
+    println!(
+        "MAVLINK Protocol version: {:?}",
+        vehicle.get_protocol_version()
+    );
 
     // Creates a separate thread that keeps a heartbeat between the topside and vehicle computer
     thread::spawn({
@@ -44,7 +47,23 @@ fn main() {
 
     let mut msgs: Vec<mavlink::common::MavMessage> = Vec::new();
     let mut attitude: Attitude = Attitude::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+
+    // PID control elements
+    let setpoint: f32 = 85.0;
+    // let mut pid_pre_error: f32 = 0.0;
+    let mut pid_integral: f32 = 0.0;
+    let kp: f32 = 1.2;
+    let ki: f32 = 0.3;
+    let kd: f32 = 0.0015;
+    let mut yaw_strength: f32 = 0.0;
+    let mut fwd_strength: f32 = 0.0;
+    let emax: f32 = 5.0;
+
+    println!("About to enter loop:");
+    // While the program is active:
     loop {
+        let now = SystemTime::now();
+        // If the message is received correctly, push that into a queue; else, return the error
         match vehicle.recv() {
             Ok((_header, msg)) => {
                 msgs.push(msg);
@@ -64,12 +83,15 @@ fn main() {
             }
         }
 
-        let id = mavlink::common::MavMessage::message_id(&msgs.last().cloned().unwrap());
-        //let payload = mavlink::common::MavMessage::ser(&msgs.last().cloned().unwrap());
+        // Parse the last message in the queue
+        let last_msg = &msgs.last().cloned().unwrap();
+        let id = mavlink::common::MavMessage::message_id(last_msg);
+        let _payload = mavlink::common::MavMessage::ser(last_msg);
         //println!("{:?}",payload);
         //println!("{:?}",id);
-        let last_msg = &msgs.last().cloned().unwrap();
 
+        // Check to see if the received message is of type #30 (ATTITUDE)
+        // If so, parse it and assign the data is contains to the pre-initialized Attitude variable
         if id == 30 {
             let data = mavlink::common::MavMessage::parse(
                 mavlink::MavlinkVersion::V1,
@@ -89,53 +111,84 @@ fn main() {
                 }) => Attitude::new(
                     roll,
                     pitch,
-                    yaw * 180.0 / 3.14,
-                    rollspeed,
+                    yaw * 180.0 / 3.14, // yaw is now going to be in degrees instead of radians
+                    rollspeed,          // However, the "speed" variables should stil be in rad/s
                     pitchspeed,
-                    yawspeed,
+                    yawspeed * 180.0 / 3.14, //
                 ),
-                _ => break,
+                _ => break, // If it's not an Attitude message, then we need to break off
             };
-            println!("{:?}", attitude.yaw);
+            // println!("{:?}", attitude.yaw);
         }
 
         // Controls section!
+        // Sets the desired yaw, and calculates how far from the desired
+        let error: f32 = (setpoint - attitude.yaw).abs();
+        let dt = match now.elapsed() {
+            Ok(elapsed) => {
+                // it prints '2'
+                let dt = (elapsed.as_nanos() as f32) / 1_000_000_000.0;
+                // println!("dt = {}", dt);
+                dt
+            }
+            Err(e) => {
+                // an error occurred!
+                println!("Error: {:?}", e);
+                0.0
+            }
+        };
 
-        let desired_yaw: f32 = 85.0;
-        let diff: f32 = (desired_yaw - attitude.yaw).abs();
-        let mut strength = 0.0;
-        if diff < 3.0 {
+        if dt == 0.0 {
+            println!("dt == 0; breaking...");
+            break;
+        }
+        pid_integral = pid_integral + (error * dt);
+        yaw_strength = (kp * error.abs()) + (ki * pid_integral) + (kd * attitude.yawspeed / dt);
+        // strength = strength + output;
+
+        /*
+        if error < 3.0 {
             vehicle
                 .send_default(&manual_control(7.0, 0.0, 6.5, 0.0, 0, 0))
                 .unwrap();
             println!(
-                "yaw: {}, diff: {} < 3.0 => forward motion ",
-                attitude.yaw, diff
+                "yaw: {}, error: {} < 3.0 => forward motion ",
+                attitude.yaw, error
             );
         } else {
-            if diff > 60.0 {
+            if error > 60.0 {
                 strength = 2.2;
-            } else if diff > 15.0 {
+            } else if error > 15.0 {
                 strength = 1.8;
             } else {
                 strength = 1.6;
             }
         }
+        */
 
         println!(
-            "yaw: {}, diff: {}, strength: {}",
-            attitude.yaw, diff, strength
+            "yaw: {:.2}, yawspeed: {:.2}, error: {:.2}, pid_integral: {:.2}, yaw_strength: {:.2}",
+            attitude.yaw, attitude.yawspeed, error, pid_integral, yaw_strength
         );
-        if attitude.yaw < desired_yaw {
+        if error < emax && attitude.yaw < setpoint {
             vehicle
-                .send_default(&manual_control(7.0, 0.0, 6.0, strength, 0, 0))
+                .send_default(&manual_control(3.5, 0.0, 6.2, yaw_strength/100.0, 0, 0))
+                .unwrap();
+        }
+        else if error < emax && attitude.yaw > setpoint {
+            vehicle
+                .send_default(&manual_control(3.5, 0.0, 6.2, -yaw_strength/100.0, 0, 0))
+                .unwrap();
+        }
+        else if attitude.yaw < setpoint {
+            vehicle
+                .send_default(&manual_control(0.0, 0.0, 6.2, yaw_strength/100.0, 0, 0))
                 .unwrap();
         } else {
             vehicle
-                .send_default(&manual_control(7.0, 0.0, 6.0, -strength, 0, 0))
+                .send_default(&manual_control(0.0, 0.0, 6.2, -yaw_strength/100.0, 0, 0))
                 .unwrap();
         }
 
-        // vehicle.send_default(&manual_control(7, 0, 6, 0, 0, 0)).unwrap();
     }
 }
